@@ -68,8 +68,6 @@ public class MixinTargetsTest {
 			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "]");
 		}
 
-		diagnostic("registered mixin configs " + mixinConfigs());
-		diagnostic("declared mixin configs " + declaredConfigs());
 		diagnostic("mixin class " + mixinClass("dev.yoptie.client.mixin.MinecraftMixin"));
 
 		if (!problems.isEmpty()) {
