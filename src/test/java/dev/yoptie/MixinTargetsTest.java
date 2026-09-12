@@ -93,7 +93,12 @@ public class MixinTargetsTest {
 		}
 
 		for (String mixin : MIXINS) {
-			load(loader, mixin, problems);
+			String resource = mixin.replace('.', '/') + ".class";
+
+			if (loader.getResource(resource) == null) {
+				problems.add(resource + " is missing");
+				diagnostic(resource + " missing");
+			}
 		}
 
 		diagnostic("declared config in mod json " + modJsonDeclaresConfig(loader));
