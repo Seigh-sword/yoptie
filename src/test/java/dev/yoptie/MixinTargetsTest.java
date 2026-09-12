@@ -19,7 +19,8 @@ public class MixinTargetsTest {
 			"dev.yoptie.client.mixin.EntityRenderDispatcherMixin",
 			"dev.yoptie.client.mixin.MinecraftMixin",
 			"dev.yoptie.client.mixin.OptionsMixin",
-			"dev.yoptie.client.mixin.ParticleEngineMixin"
+			"dev.yoptie.client.mixin.ParticleEngineMixin",
+			"dev.yoptie.client.mixin.TelemetryLogManagerMixin"
 	};
 
 	private static final String[][] METHODS = {
@@ -30,7 +31,8 @@ public class MixinTargetsTest {
 			{"net.minecraft.client.particle.ParticleGroup", "size", "0"},
 			{"net.minecraft.client.renderer.entity.EntityRenderDispatcher", "shouldRender", "5"},
 			{"net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher", "tryExtractRenderState", "4"},
-			{"net.minecraft.client.multiplayer.ClientLevel", "tickNonPassenger", "1"}
+			{"net.minecraft.client.multiplayer.ClientLevel", "tickNonPassenger", "1"},
+			{"net.minecraft.client.telemetry.TelemetryLogManager", "open", "1"}
 	};
 
 	private static final String[][] FIELDS = {
@@ -45,7 +47,8 @@ public class MixinTargetsTest {
 			{"net.minecraft.client.particle.ParticleEngine", "yoptie$enforceParticleBudget"},
 			{"net.minecraft.client.renderer.entity.EntityRenderDispatcher", "yoptie$cullDistantEntities"},
 			{"net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher", "yoptie$cullDistantBlockEntities"},
-			{"net.minecraft.client.multiplayer.ClientLevel", "yoptie$skipDistantTicks"}
+			{"net.minecraft.client.multiplayer.ClientLevel", "yoptie$skipDistantTicks"},
+			{"net.minecraft.client.telemetry.TelemetryLogManager", "yoptie$skipTelemetryLog"}
 	};
 
 	private static final ClassLoader GAME_LOADER = gameLoader();

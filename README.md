@@ -14,7 +14,7 @@ heap.
 
 | Area | Vanilla behaviour | Yoptie behaviour | Default |
 | --- | --- | --- | --- |
-| Telemetry | Client reports game and hardware statistics to Mojang, including an optional extra data channel | Reporting is refused at the source, so no sender thread, no log file, no upload | Removed |
+| Telemetry | Client reports game and hardware statistics to Mojang, including an optional extra data channel | Reporting is refused at the source and the telemetry log directory is never opened, so no event is built, no file is written and nothing is uploaded | Removed |
 | Particles | Every render group can hold 16384 particles, and nothing bounds the total. Heavy scenes produce thousands of live objects per second | A global budget caps how many particles the engine will accept. Past the budget, new particles are dropped before they are queued | 4000 particles |
 | Entities | Every entity in the view frustum inside 64 blocks of the camera gets a fresh render state built every frame, even when hidden by distance | Entities past the configured distance never reach the renderer. The camera entity, anything carrying the player and whatever the crosshair is on are always kept | 48 blocks, 64 for players |
 | Block entities | Every visible block entity within render distance is extracted and submitted every frame | Extraction stops beyond the configured distance. Beacons, conduits, end portals and end gateways are never culled because they matter at range | 64 blocks |
@@ -56,6 +56,15 @@ other Fabric configs on first launch.
 
 Set `enabled` to `false` to keep the mod installed but inert. Every other value is read
 on startup and clamped to a sane range, so a typo cannot break the client.
+
+## Verified against the real client
+
+Yoptie ships a test that loads Minecraft 26.2 itself through the Fabric loader and checks
+that every mixin in `yoptie.client.mixins.json` is applied to the real target class, that
+every hook lands on a method that exists with the expected arguments, that every shadowed
+field exists with the expected type, and that the config defaults and clamps behave. CI
+fails if any of that stops being true, so a renamed or moved method in a new Minecraft
+build cannot silently disable a hook.
 
 ## Requirements
 
