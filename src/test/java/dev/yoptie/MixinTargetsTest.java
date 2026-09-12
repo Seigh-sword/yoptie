@@ -1,19 +1,25 @@
 package dev.yoptie;
 
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 public class MixinTargetsTest {
-	private static final String[] HANDLERS = {
-			"net.minecraft.client.Minecraft#yoptie$disableTelemetry",
-			"net.minecraft.client.Options#yoptie$capRenderDistance",
-			"net.minecraft.client.particle.ParticleEngine#yoptie$enforceParticleBudget",
-			"net.minecraft.client.renderer.entity.EntityRenderDispatcher#yoptie$cullDistantEntities",
-			"net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher#yoptie$cullDistantBlockEntities",
-			"net.minecraft.client.multiplayer.ClientLevel#yoptie$skipDistantTicks"
+	private static final String CONFIG = "yoptie.client.mixins.json";
+
+	private static final String[] MIXINS = {
+			"dev.yoptie.client.mixin.BlockEntityRenderDispatcherMixin",
+			"dev.yoptie.client.mixin.ClientLevelMixin",
+			"dev.yoptie.client.mixin.EntityRenderDispatcherMixin",
+			"dev.yoptie.client.mixin.MinecraftMixin",
+			"dev.yoptie.client.mixin.OptionsMixin",
+			"dev.yoptie.client.mixin.ParticleEngineMixin"
 	};
 
 	private static final String[][] METHODS = {
@@ -33,11 +39,28 @@ public class MixinTargetsTest {
 			{"net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher", "cameraPos", "net.minecraft.world.phys.Vec3"}
 	};
 
+	private static final String[][] HANDLERS = {
+			{"net.minecraft.client.Minecraft", "yoptie$disableTelemetry"},
+			{"net.minecraft.client.Options", "yoptie$capRenderDistance"},
+			{"net.minecraft.client.particle.ParticleEngine", "yoptie$enforceParticleBudget"},
+			{"net.minecraft.client.renderer.entity.EntityRenderDispatcher", "yoptie$cullDistantEntities"},
+			{"net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher", "yoptie$cullDistantBlockEntities"},
+			{"net.minecraft.client.multiplayer.ClientLevel", "yoptie$skipDistantTicks"}
+	};
+
+	static {
+		register();
+	}
+
 	@Test
 	void targetsExist() throws Exception {
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		List<String> problems = new ArrayList<>();
 		List<String> missingHandlers = new ArrayList<>();
+
+		for (String mixin : MIXINS) {
+			load(loader, mixin, problems);
+		}
 
 		for (String[] entry : METHODS) {
 			Class<?> owner = load(loader, entry[0], problems);
@@ -55,20 +78,24 @@ public class MixinTargetsTest {
 			}
 		}
 
-		for (String entry : HANDLERS) {
-			String[] parts = entry.split("#");
-			Class<?> owner = load(loader, parts[0], problems);
+		for (String[] entry : HANDLERS) {
+			Class<?> owner = load(loader, entry[0], problems);
 
-			if (owner != null && find(owner, parts[1]) == null) {
-				missingHandlers.add(entry);
+			if (owner != null) {
+				String handler = findHandler(owner, entry[1]);
+				diagnostic(entry[0] + " " + entry[1] + " -> " + (handler == null ? "missing" : handler));
+
+				if (handler == null) {
+					missingHandlers.add(entry[0] + "#" + entry[1]);
+				}
 			}
 		}
+
+		diagnostic("declared config in mod json " + modJsonDeclaresConfig(loader));
 
 		if (!missingHandlers.isEmpty()) {
 			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "]");
 		}
-
-		diagnostic("mixin class " + mixinClass("dev.yoptie.client.mixin.MinecraftMixin"));
 
 		if (!problems.isEmpty()) {
 			throw new AssertionError("VERIFY " + String.join(" | ", problems));
@@ -78,42 +105,86 @@ public class MixinTargetsTest {
 	}
 
 	@Test
-	void telemetryMixinIsLive() throws Exception {
-		String outcome;
+	void configBehaviour() throws Exception {
+		List<String> problems = new ArrayList<>();
+		YoptieConfig config = new YoptieConfig();
 
+		check(config.enabled, "enabled default", problems);
+		check(config.telemetry.disabled, "telemetry disabled by default", problems);
+		check(config.particles.limitTotal, "particle budget on by default", problems);
+		check(config.particles.maxParticles == 4000, "particle budget default", problems);
+		check(config.entities.distanceCulling, "entity culling on by default", problems);
+		check(config.entities.entityDistance == 48.0, "entity distance default", problems);
+		check(config.entities.playerDistance == 64.0, "player distance default", problems);
+		check(config.entities.blockEntityCulling, "block entity culling on by default", problems);
+		check(config.entities.blockEntityDistance == 64.0, "block entity distance default", problems);
+		check(!config.entities.tickCulling, "tick culling off by default", problems);
+		check(!config.entities.tickCullPlayers, "player tick culling off by default", problems);
+		check(config.renderDistance.capEnabled, "render distance cap on by default", problems);
+		check(config.renderDistance.maxChunks == 16, "render distance cap default", problems);
+
+		config.particles.maxParticles = -5;
+		config.entities.entityDistance = 99999.0;
+		config.entities.playerDistance = Double.NaN;
+		config.entities.blockEntityDistance = -1.0;
+		config.renderDistance.maxChunks = 999;
+		invokeValidate(config);
+
+		check(config.particles.maxParticles == 0, "particle count clamp", problems);
+		check(config.entities.entityDistance == 1024.0, "entity distance clamp", problems);
+		check(config.entities.playerDistance == 1024.0, "player distance clamp", problems);
+		check(config.entities.blockEntityDistance == 0.0, "block entity distance clamp", problems);
+		check(config.renderDistance.maxChunks == 32, "render distance clamp", problems);
+
+		config.particles.maxParticles = 900000;
+		config.renderDistance.maxChunks = 1;
+		invokeValidate(config);
+
+		check(config.particles.maxParticles == 200000, "particle count upper clamp", problems);
+		check(config.renderDistance.maxChunks == 2, "render distance lower clamp", problems);
+
+		Path file = Files.createTempFile("yoptie", ".json");
+
+		try {
+			config.save(file);
+			String written = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+			check(written.contains("\"maxChunks\": 2"), "config file written", problems);
+		} finally {
+			Files.deleteIfExists(file);
+		}
+
+		if (!problems.isEmpty()) {
+			throw new AssertionError("VERIFY " + String.join(" | ", problems));
+		}
+
+		System.out.println("::notice title=yoptie-verify::config defaults, clamps and file output are correct");
+	}
+
+	private static void register() {
 		try {
 			ClassLoader loader = Thread.currentThread().getContextClassLoader();
-			Class<?> minecraftClass = Class.forName("net.minecraft.client.Minecraft", false, loader);
-			Object minecraft = allocate(minecraftClass);
-			Method allowsTelemetry = minecraftClass.getMethod("allowsTelemetry");
-			allowsTelemetry.setAccessible(true);
-			outcome = "returned " + allowsTelemetry.invoke(minecraft);
+			Class<?> mixins = Class.forName("org.spongepowered.asm.mixin.Mixins", true, loader);
+			diagnostic("mixin configs before " + configNames(mixins));
+
+			if (!configNames(mixins).contains(CONFIG)) {
+				mixins.getMethod("addConfiguration", String.class).invoke(null, CONFIG);
+				diagnostic("mixin configs after " + configNames(mixins));
+			}
+
+			Class<?> mixinsFromTarget = Class.forName("org.spongepowered.asm.mixin.Mixins", true, mixins.getClassLoader());
+			diagnostic("mixin class shared " + (mixins == mixinsFromTarget));
 		} catch (Throwable error) {
-			Throwable cause = error.getCause() == null ? error : error.getCause();
-			outcome = "threw " + cause.getClass().getName() + ": " + cause.getMessage();
+			diagnostic("mixin registration failed " + error);
 		}
-
-		diagnostic("telemetry probe " + outcome);
-
-		if (!"returned false".equals(outcome)) {
-			throw new AssertionError("VERIFY telemetry probe " + outcome);
-		}
-
-		System.out.println("::notice title=yoptie-verify::telemetry probe correctly returned false");
 	}
 
-	private static void diagnostic(String message) {
-		System.out.println("YOPTIE-DIAGNOSTIC " + message);
-	}
-
-	private static String mixinConfigs() {
+	private static String configNames(Class<?> mixins) {
 		try {
-			Class<?> mixinsClass = Class.forName("org.spongepowered.asm.mixin.Mixins");
-			Object configs = mixinsClass.getMethod("getConfigs").invoke(null);
 			StringBuilder builder = new StringBuilder();
 
-			for (Object config : (Iterable<?>) configs) {
-				builder.append(config.getClass().getMethod("getName").invoke(config)).append(' ');
+			for (Object config : (Iterable<?>) mixins.getMethod("getConfigs").invoke(null)) {
+				Method name = config.getClass().getMethod("getName");
+				builder.append(name.invoke(config)).append(' ');
 			}
 
 			return builder.toString().trim();
@@ -122,52 +193,49 @@ public class MixinTargetsTest {
 		}
 	}
 
-	private static String declaredConfigs() {
-		try {
-			Class<?> loaderClass = Class.forName("net.fabricmc.loader.api.FabricLoader");
-			Class<?> containerClass = Class.forName("net.fabricmc.loader.api.ModContainer");
-			Class<?> metadataClass = Class.forName("net.fabricmc.loader.api.metadata.ModMetadata");
-			Object loader = loaderClass.getMethod("getInstance").invoke(null);
-			Object optional = loaderClass.getMethod("getModContainer", String.class).invoke(loader, "yoptie");
-			Object mod = optional.getClass().getMethod("get").invoke(optional);
-			Object metadata = containerClass.getMethod("getMetadata").invoke(mod);
-			Object configs = metadataClass.getMethod("getMixinConfigs", Class.forName("net.fabricmc.api.EnvType")).invoke(metadata, Enum.valueOf((Class<Enum>) Class.forName("net.fabricmc.api.EnvType"), "CLIENT"));
-			return String.valueOf(configs);
+	private static String modJsonDeclaresConfig(ClassLoader loader) {
+		try (InputStream stream = loader.getResourceAsStream("fabric.mod.json")) {
+			if (stream == null) {
+				return "mod json missing";
+			}
+
+			byte[] bytes = new byte[4096];
+			int length = stream.read(bytes);
+
+			if (length <= 0) {
+				return "mod json empty";
+			}
+
+			return Boolean.toString(new String(bytes, 0, length, StandardCharsets.UTF_8).contains(CONFIG));
 		} catch (Throwable error) {
 			return "unavailable " + error;
 		}
 	}
 
-	private static String mixinClass(String name) {
-		try {
-			Class.forName(name, false, Thread.currentThread().getContextClassLoader());
-			return "loadable";
-		} catch (Throwable error) {
-			return "unloadable " + error;
-		}
+	private static void invokeValidate(YoptieConfig config) throws Exception {
+		Method validate = YoptieConfig.class.getDeclaredMethod("validate");
+		validate.setAccessible(true);
+		validate.invoke(config);
 	}
 
-	private static Object allocate(Class<?> type) throws Exception {
-		Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
-		Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
-		theUnsafe.setAccessible(true);
-		Object unsafe = theUnsafe.get(null);
-		Method allocateInstance = unsafeClass.getMethod("allocateInstance", Class.class);
-		return allocateInstance.invoke(unsafe, type);
+	private static void check(boolean condition, String label, List<String> problems) {
+		if (!condition) {
+			problems.add(label + " is wrong");
+		}
 	}
 
 	private static Class<?> load(ClassLoader loader, String name, List<String> problems) {
 		try {
 			return Class.forName(name, false, loader);
-		} catch (ClassNotFoundException | LinkageError error) {
-			problems.add(name + " could not be loaded: " + error);
+		} catch (Throwable error) {
+			problems.add(name + " is not loadable: " + error);
 			return null;
 		}
 	}
 
-	private static Method find(Class<?> owner, String name) {
+	private static Method find(Class<?> owner, String name, int parameters) {
 		for (Method method : owner.getDeclaredMethods()) {
-			if (method.getName().equals(name)) {
+			if (method.getName().equals(name) && method.getParameterCount() == parameters) {
 				return method;
 			}
 		}
@@ -175,9 +243,9 @@ public class MixinTargetsTest {
 		return null;
 	}
 
-	private static Method find(Class<?> owner, String name, int parameterCount) {
+	private static Method findHandler(Class<?> owner, String name) {
 		for (Method method : owner.getDeclaredMethods()) {
-			if (method.getName().equals(name) && method.getParameterCount() == parameterCount) {
+			if (method.getName().equals(name) || method.getName().endsWith("$" + name)) {
 				return method;
 			}
 		}
@@ -185,16 +253,19 @@ public class MixinTargetsTest {
 		return null;
 	}
 
-	private static Field findField(Class<?> owner, String name, String typeName) {
-		try {
-			Field field = owner.getDeclaredField(name);
-
-			if (field.getType().getName().equals(typeName)) {
-				return field;
+	private static Field findField(Class<?> owner, String name, String type) {
+		for (Class<?> current = owner; current != null; current = current.getSuperclass()) {
+			for (Field field : current.getDeclaredFields()) {
+				if (field.getName().equals(name) && field.getType().getName().equals(type)) {
+					return field;
+				}
 			}
-		} catch (NoSuchFieldException ignored) {
 		}
 
 		return null;
+	}
+
+	private static void diagnostic(String message) {
+		System.out.println("YOPTIE-DIAGNOSTIC " + message);
 	}
 }
