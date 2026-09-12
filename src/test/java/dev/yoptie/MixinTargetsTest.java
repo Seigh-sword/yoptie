@@ -82,7 +82,7 @@ public class MixinTargetsTest {
 			Class<?> owner = load(loader, entry[0], problems);
 
 			if (owner != null) {
-				String handler = findHandler(owner, entry[1]);
+				Method handler = findHandler(owner, entry[1]);
 				diagnostic(entry[0] + " " + entry[1] + " -> " + (handler == null ? "missing" : handler));
 
 				if (handler == null) {
