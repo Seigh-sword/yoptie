@@ -1,12 +1,11 @@
 package dev.yoptie;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.spongepowered.asm.mixin.MixinEnvironment;
 
 public class MixinTargetsTest {
 	private static final String[] HANDLERS = {
@@ -39,32 +38,21 @@ public class MixinTargetsTest {
 	void targetsExist() throws Exception {
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		List<String> problems = new ArrayList<>();
+		List<String> missingHandlers = new ArrayList<>();
 
 		for (String[] entry : METHODS) {
 			Class<?> owner = load(loader, entry[0], problems);
 
-			if (owner == null) {
-				continue;
-			}
-
-			if (find(owner, entry[1], Integer.parseInt(entry[2])) == null) {
+			if (owner != null && find(owner, entry[1], Integer.parseInt(entry[2])) == null) {
 				problems.add(entry[0] + "#" + entry[1] + " with " + entry[2] + " parameters is missing");
-			} else {
-				notice("target " + entry[0] + "#" + entry[1] + " present");
 			}
 		}
 
 		for (String[] entry : FIELDS) {
 			Class<?> owner = load(loader, entry[0], problems);
 
-			if (owner == null) {
-				continue;
-			}
-
-			if (findField(owner, entry[1], entry[2]) == null) {
+			if (owner != null && findField(owner, entry[1], entry[2]) == null) {
 				problems.add(entry[0] + "#" + entry[1] + " of type " + entry[2] + " is missing");
-			} else {
-				notice("shadow " + entry[0] + "#" + entry[1] + " present");
 			}
 		}
 
@@ -72,26 +60,43 @@ public class MixinTargetsTest {
 			String[] parts = entry.split("#");
 			Class<?> owner = load(loader, parts[0], problems);
 
-			if (owner != null) {
-				notice("handler " + entry + (find(owner, parts[1]) == null ? " not visible" : " visible"));
+			if (owner != null && find(owner, parts[1]) == null) {
+				missingHandlers.add(entry);
 			}
 		}
 
-		if (!problems.isEmpty()) {
-			throw new AssertionError(String.join("; ", problems));
+		if (!missingHandlers.isEmpty()) {
+			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "] configs=" + MixinEnvironment.getCurrentEnvironment().getConfigs());
 		}
+
+		if (!problems.isEmpty()) {
+			throw new AssertionError("VERIFY " + String.join(" | ", problems));
+		}
+
+		System.out.println("::notice title=yoptie-verify::all targets and handlers are live");
 	}
 
 	@Test
 	void telemetryMixinIsLive() throws Exception {
-		ClassLoader loader = Thread.currentThread().getContextClassLoader();
-		Class<?> minecraftClass = Class.forName("net.minecraft.client.Minecraft", false, loader);
-		Object minecraft = allocate(minecraftClass);
-		Method allowsTelemetry = minecraftClass.getMethod("allowsTelemetry");
-		allowsTelemetry.setAccessible(true);
-		Object result = allowsTelemetry.invoke(minecraft);
-		notice("allowsTelemetry returned " + result + " on an uninitialised client");
-		assertFalse((Boolean) result, "telemetry should be refused by the mixin");
+		String outcome;
+
+		try {
+			ClassLoader loader = Thread.currentThread().getContextClassLoader();
+			Class<?> minecraftClass = Class.forName("net.minecraft.client.Minecraft", false, loader);
+			Object minecraft = allocate(minecraftClass);
+			Method allowsTelemetry = minecraftClass.getMethod("allowsTelemetry");
+			allowsTelemetry.setAccessible(true);
+			outcome = "returned " + allowsTelemetry.invoke(minecraft);
+		} catch (Throwable error) {
+			Throwable cause = error.getCause() == null ? error : error.getCause();
+			outcome = "threw " + cause.getClass().getName() + ": " + cause.getMessage();
+		}
+
+		if (!"returned false".equals(outcome)) {
+			throw new AssertionError("VERIFY telemetry probe " + outcome);
+		}
+
+		System.out.println("::notice title=yoptie-verify::telemetry probe correctly returned false");
 	}
 
 	private static Object allocate(Class<?> type) throws Exception {
@@ -143,9 +148,5 @@ public class MixinTargetsTest {
 		}
 
 		return null;
-	}
-
-	private static void notice(String message) {
-		System.out.println("::notice title=yoptie-verify::" + message);
 	}
 }
