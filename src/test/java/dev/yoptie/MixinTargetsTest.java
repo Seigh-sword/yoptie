@@ -251,6 +251,7 @@ public class MixinTargetsTest {
 			return Class.forName(name, false, loader);
 		} catch (Throwable error) {
 			problems.add(name + " is not loadable: " + error);
+			diagnostic(name + " not loadable " + error);
 			return null;
 		}
 	}
