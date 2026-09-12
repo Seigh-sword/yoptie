@@ -1,7 +1,5 @@
-# Automatically build the project and run any configured tests for every push
-# and submitted pull request. This can help catch issues that only occur on
-# certain platforms or Java versions, and provides a first line of defence
-# against bad commits.
+# Builds the mod on every push and pull request, verifies the produced jar and
+# reports packaging problems as annotations.
 
 name: build
 on: [pull_request, push]
@@ -22,8 +20,29 @@ jobs:
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       - name: build
-        run: ./gradlew build
+        run: |
+          set +e
+          ./gradlew build --stacktrace > build.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            grep -nE "error:|FAILURE:|Execution failed|Caused by|What went wrong|Could not|FAILED" build.log | tail -n 40 | while IFS= read -r line; do
+              echo "::error title=gradle::$(printf '%s' "$line" | tr -d '\r' | tr '\n' ' ' | cut -c1-800)"
+            done
+            echo "::error title=build::gradle exited with code $status"
+          fi
+          exit "$status"
+      - name: verify jar
+        run: |
+          jar_file=$(ls build/libs/yoptie-*.jar | grep -v sources | head -n 1)
+          echo "::notice title=jar::$(basename "$jar_file") $(stat -c%s "$jar_file") bytes"
+          listing=$(unzip -l "$jar_file" | sed -n '4,$p' | awk 'NF>1 {print $NF}' | tr '\n' ' ')
+          echo "::notice title=entries::$(printf '%s' "$listing" | cut -c1-3000)"
+          refmap=$(unzip -p "$jar_file" yoptie.client.mixins.json | tr -d '\n\t ')
+          echo "::notice title=mixins-config::$(printf '%s' "$refmap" | cut -c1-1500)"
+          unzip -p "$jar_file" fabric.mod.json | tr -d '\n\t' > mod-json.txt
+          echo "::notice title=fabric-mod-json::$(cut -c1-2000 mod-json.txt)"
       - name: capture build artifacts
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: Artifacts
