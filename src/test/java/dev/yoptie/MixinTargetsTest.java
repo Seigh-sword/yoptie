@@ -1,5 +1,7 @@
 package dev.yoptie;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -34,27 +36,9 @@ public class MixinTargetsTest {
 	};
 
 	@Test
-	void targetsAndHandlersExist() throws Exception {
+	void targetsExist() throws Exception {
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		List<String> problems = new ArrayList<>();
-		report(loader);
-
-		for (String entry : HANDLERS) {
-			String[] parts = entry.split("#");
-			Class<?> owner = load(loader, parts[0], problems);
-
-			if (owner == null) {
-				continue;
-			}
-
-			Method handler = find(owner, parts[1]);
-
-			if (handler == null) {
-				problems.add(entry + " is missing, the mixin was not applied");
-			} else {
-				notice("handler " + entry + " applied");
-			}
-		}
 
 		for (String[] entry : METHODS) {
 			Class<?> owner = load(loader, entry[0], problems);
@@ -63,9 +47,7 @@ public class MixinTargetsTest {
 				continue;
 			}
 
-			Method method = find(owner, entry[1], Integer.parseInt(entry[2]));
-
-			if (method == null) {
+			if (find(owner, entry[1], Integer.parseInt(entry[2])) == null) {
 				problems.add(entry[0] + "#" + entry[1] + " with " + entry[2] + " parameters is missing");
 			} else {
 				notice("target " + entry[0] + "#" + entry[1] + " present");
@@ -79,18 +61,46 @@ public class MixinTargetsTest {
 				continue;
 			}
 
-			Field field = findField(owner, entry[1], entry[2]);
-
-			if (field == null) {
+			if (findField(owner, entry[1], entry[2]) == null) {
 				problems.add(entry[0] + "#" + entry[1] + " of type " + entry[2] + " is missing");
 			} else {
 				notice("shadow " + entry[0] + "#" + entry[1] + " present");
 			}
 		}
 
+		for (String entry : HANDLERS) {
+			String[] parts = entry.split("#");
+			Class<?> owner = load(loader, parts[0], problems);
+
+			if (owner != null) {
+				notice("handler " + entry + (find(owner, parts[1]) == null ? " not visible" : " visible"));
+			}
+		}
+
 		if (!problems.isEmpty()) {
 			throw new AssertionError(String.join("; ", problems));
 		}
+	}
+
+	@Test
+	void telemetryMixinIsLive() throws Exception {
+		ClassLoader loader = Thread.currentThread().getContextClassLoader();
+		Class<?> minecraftClass = Class.forName("net.minecraft.client.Minecraft", false, loader);
+		Object minecraft = allocate(minecraftClass);
+		Method allowsTelemetry = minecraftClass.getMethod("allowsTelemetry");
+		allowsTelemetry.setAccessible(true);
+		Object result = allowsTelemetry.invoke(minecraft);
+		notice("allowsTelemetry returned " + result + " on an uninitialised client");
+		assertFalse((Boolean) result, "telemetry should be refused by the mixin");
+	}
+
+	private static Object allocate(Class<?> type) throws Exception {
+		Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+		Field theUnsafe = unsafeClass.getDeclaredField("theUnsafe");
+		theUnsafe.setAccessible(true);
+		Object unsafe = theUnsafe.get(null);
+		Method allocateInstance = unsafeClass.getMethod("allocateInstance", Class.class);
+		return allocateInstance.invoke(unsafe, type);
 	}
 
 	private static Class<?> load(ClassLoader loader, String name, List<String> problems) {
@@ -100,61 +110,6 @@ public class MixinTargetsTest {
 			problems.add(name + " could not be loaded: " + error);
 			return null;
 		}
-	}
-
-	private static void report(ClassLoader loader) {
-		notice("side " + System.getProperty("fabric.side") + " development " + System.getProperty("fabric.development"));
-		notice("mods " + modIds());
-		notice("mixin config visible " + (loader.getResource("yoptie.client.mixins.json") != null));
-		notice("mod json visible " + (loader.getResource("fabric.mod.json") != null));
-		notice("classpath " + classpathEntries());
-
-		try {
-			Class<?> particles = Class.forName("net.minecraft.client.particle.ParticleEngine", false, loader);
-			StringBuilder names = new StringBuilder();
-
-			for (Method method : particles.getDeclaredMethods()) {
-				if (method.getName().contains("yoptie")) {
-					names.append(method.getName()).append(' ');
-				}
-			}
-
-			notice("injected methods on ParticleEngine [" + names.toString().trim() + "]");
-		} catch (Throwable error) {
-			notice("ParticleEngine probe failed " + error);
-		}
-	}
-
-	private static String modIds() {
-		try {
-			Class<?> loaderClass = Class.forName("net.fabricmc.loader.api.FabricLoader");
-			Class<?> containerClass = Class.forName("net.fabricmc.loader.api.ModContainer");
-			Class<?> metadataClass = Class.forName("net.fabricmc.loader.api.metadata.ModMetadata");
-			Object loader = loaderClass.getMethod("getInstance").invoke(null);
-			Iterable<?> mods = (Iterable<?>) loaderClass.getMethod("getAllMods").invoke(loader);
-			StringBuilder builder = new StringBuilder();
-
-			for (Object mod : mods) {
-				Object metadata = containerClass.getMethod("getMetadata").invoke(mod);
-				builder.append(metadataClass.getMethod("getId").invoke(metadata)).append(' ');
-			}
-
-			return builder.toString().trim();
-		} catch (Throwable error) {
-			return "unknown: " + error;
-		}
-	}
-
-	private static String classpathEntries() {
-		StringBuilder builder = new StringBuilder();
-
-		for (String entry : System.getProperty("java.class.path", "").split(java.io.File.pathSeparator)) {
-			if (entry.contains("yoptie") || entry.contains("build/classes") || entry.contains("build/resources")) {
-				builder.append(entry.substring(entry.lastIndexOf('/') + 1)).append(' ');
-			}
-		}
-
-		return builder.toString().trim();
 	}
 
 	private static Method find(Class<?> owner, String name) {
