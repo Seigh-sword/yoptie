@@ -68,7 +68,9 @@ public class MixinTargetsTest {
 			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "]");
 		}
 
-		diagnostic("configs " + mixinConfigs());
+		diagnostic("registered mixin configs " + mixinConfigs());
+		diagnostic("declared mixin configs " + declaredConfigs());
+		diagnostic("mixin class " + mixinClass("dev.yoptie.client.mixin.MinecraftMixin"));
 
 		if (!problems.isEmpty()) {
 			throw new AssertionError("VERIFY " + String.join(" | ", problems));
@@ -108,11 +110,42 @@ public class MixinTargetsTest {
 
 	private static String mixinConfigs() {
 		try {
-			Class<?> environmentClass = Class.forName("org.spongepowered.asm.mixin.MixinEnvironment");
-			Object environment = environmentClass.getMethod("getCurrentEnvironment").invoke(null);
-			return String.valueOf(environmentClass.getMethod("getConfigs").invoke(environment));
+			Class<?> mixinsClass = Class.forName("org.spongepowered.asm.mixin.Mixins");
+			Object configs = mixinsClass.getMethod("getConfigs").invoke(null);
+			StringBuilder builder = new StringBuilder();
+
+			for (Object config : (Iterable<?>) configs) {
+				builder.append(config.getClass().getMethod("getName").invoke(config)).append(' ');
+			}
+
+			return builder.toString().trim();
 		} catch (Throwable error) {
 			return "unavailable " + error;
+		}
+	}
+
+	private static String declaredConfigs() {
+		try {
+			Class<?> loaderClass = Class.forName("net.fabricmc.loader.api.FabricLoader");
+			Class<?> containerClass = Class.forName("net.fabricmc.loader.api.ModContainer");
+			Class<?> metadataClass = Class.forName("net.fabricmc.loader.api.metadata.ModMetadata");
+			Object loader = loaderClass.getMethod("getInstance").invoke(null);
+			Object optional = loaderClass.getMethod("getModContainer", String.class).invoke(loader, "yoptie");
+			Object mod = optional.getClass().getMethod("get").invoke(optional);
+			Object metadata = containerClass.getMethod("getMetadata").invoke(mod);
+			Object configs = metadataClass.getMethod("getMixinConfigs", Class.forName("net.fabricmc.api.EnvType")).invoke(metadata, Enum.valueOf((Class<Enum>) Class.forName("net.fabricmc.api.EnvType"), "CLIENT"));
+			return String.valueOf(configs);
+		} catch (Throwable error) {
+			return "unavailable " + error;
+		}
+	}
+
+	private static String mixinClass(String name) {
+		try {
+			Class.forName(name, false, Thread.currentThread().getContextClassLoader());
+			return "loadable";
+		} catch (Throwable error) {
+			return "unloadable " + error;
 		}
 	}
 
