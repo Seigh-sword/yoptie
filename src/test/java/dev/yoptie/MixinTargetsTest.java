@@ -37,6 +37,7 @@ public class MixinTargetsTest {
 	void targetsAndHandlersExist() throws Exception {
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		List<String> problems = new ArrayList<>();
+		report(loader);
 
 		for (String entry : HANDLERS) {
 			String[] parts = entry.split("#");
@@ -99,6 +100,61 @@ public class MixinTargetsTest {
 			problems.add(name + " could not be loaded: " + error);
 			return null;
 		}
+	}
+
+	private static void report(ClassLoader loader) {
+		notice("side " + System.getProperty("fabric.side") + " development " + System.getProperty("fabric.development"));
+		notice("mods " + modIds());
+		notice("mixin config visible " + (loader.getResource("yoptie.client.mixins.json") != null));
+		notice("mod json visible " + (loader.getResource("fabric.mod.json") != null));
+		notice("classpath " + classpathEntries());
+
+		try {
+			Class<?> particles = Class.forName("net.minecraft.client.particle.ParticleEngine", false, loader);
+			StringBuilder names = new StringBuilder();
+
+			for (Method method : particles.getDeclaredMethods()) {
+				if (method.getName().contains("yoptie")) {
+					names.append(method.getName()).append(' ');
+				}
+			}
+
+			notice("injected methods on ParticleEngine [" + names.toString().trim() + "]");
+		} catch (Throwable error) {
+			notice("ParticleEngine probe failed " + error);
+		}
+	}
+
+	private static String modIds() {
+		try {
+			Class<?> loaderClass = Class.forName("net.fabricmc.loader.api.FabricLoader");
+			Class<?> containerClass = Class.forName("net.fabricmc.loader.api.ModContainer");
+			Class<?> metadataClass = Class.forName("net.fabricmc.loader.api.metadata.ModMetadata");
+			Object loader = loaderClass.getMethod("getInstance").invoke(null);
+			Iterable<?> mods = (Iterable<?>) loaderClass.getMethod("getAllMods").invoke(loader);
+			StringBuilder builder = new StringBuilder();
+
+			for (Object mod : mods) {
+				Object metadata = containerClass.getMethod("getMetadata").invoke(mod);
+				builder.append(metadataClass.getMethod("getId").invoke(metadata)).append(' ');
+			}
+
+			return builder.toString().trim();
+		} catch (Throwable error) {
+			return "unknown: " + error;
+		}
+	}
+
+	private static String classpathEntries() {
+		StringBuilder builder = new StringBuilder();
+
+		for (String entry : System.getProperty("java.class.path", "").split(java.io.File.pathSeparator)) {
+			if (entry.contains("yoptie") || entry.contains("build/classes") || entry.contains("build/resources")) {
+				builder.append(entry.substring(entry.lastIndexOf('/') + 1)).append(' ');
+			}
+		}
+
+		return builder.toString().trim();
 	}
 
 	private static Method find(Class<?> owner, String name) {
