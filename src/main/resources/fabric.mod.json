@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "yoptie",
+	"version": "${version}",
+	"name": "Yoptie",
+	"description": "Client-side optimization and debloat layer for Minecraft. Telemetry off, particles bounded, invisible entities and block entities skipped, render distance capped, so the game keeps its look while using far less CPU, GPU and memory.",
+	"authors": [
+		"Seigh-sword"
+	],
+	"contact": {
+		"homepage": "https://github.com/Seigh-sword/yoptie",
+		"sources": "https://github.com/Seigh-sword/yoptie",
+		"issues": "https://github.com/Seigh-sword/yoptie/issues"
+	},
+	"license": "MIT",
+	"icon": "assets/yoptie/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+			"dev.yoptie.Yoptie"
+		],
+		"client": [
+			"dev.yoptie.client.YoptieClient"
+		]
+	},
+	"mixins": [
+		{
+			"config": "yoptie.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.2",
+		"java": ">=25"
+	}
+}

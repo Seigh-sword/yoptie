@@ -1,0 +1,16 @@
+{
+	"required": true,
+	"package": "dev.yoptie.client.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"BlockEntityRenderDispatcherMixin",
+		"ClientLevelMixin",
+		"EntityRenderDispatcherMixin",
+		"MinecraftMixin",
+		"OptionsMixin",
+		"ParticleEngineMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
