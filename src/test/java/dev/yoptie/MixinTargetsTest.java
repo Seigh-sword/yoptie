@@ -5,7 +5,6 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.spongepowered.asm.mixin.MixinEnvironment;
 
 public class MixinTargetsTest {
 	private static final String[] HANDLERS = {
@@ -66,7 +65,7 @@ public class MixinTargetsTest {
 		}
 
 		if (!missingHandlers.isEmpty()) {
-			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "] configs=" + MixinEnvironment.getCurrentEnvironment().getConfigs());
+			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "] configs=" + mixinConfigs());
 		}
 
 		if (!problems.isEmpty()) {
@@ -97,6 +96,16 @@ public class MixinTargetsTest {
 		}
 
 		System.out.println("::notice title=yoptie-verify::telemetry probe correctly returned false");
+	}
+
+	private static String mixinConfigs() {
+		try {
+			Class<?> environmentClass = Class.forName("org.spongepowered.asm.mixin.MixinEnvironment");
+			Object environment = environmentClass.getMethod("getCurrentEnvironment").invoke(null);
+			return String.valueOf(environmentClass.getMethod("getConfigs").invoke(environment));
+		} catch (Throwable error) {
+			return "unavailable " + error;
+		}
 	}
 
 	private static Object allocate(Class<?> type) throws Exception {
