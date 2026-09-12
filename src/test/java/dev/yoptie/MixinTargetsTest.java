@@ -48,19 +48,20 @@ public class MixinTargetsTest {
 			{"net.minecraft.client.multiplayer.ClientLevel", "yoptie$skipDistantTicks"}
 	};
 
+	private static final ClassLoader GAME_LOADER = gameLoader();
+
 	static {
 		register();
 	}
 
 	@Test
 	void targetsExist() throws Exception {
-		ClassLoader loader = Thread.currentThread().getContextClassLoader();
+		ClassLoader loader = GAME_LOADER;
 		List<String> problems = new ArrayList<>();
 		List<String> missingHandlers = new ArrayList<>();
 
-		for (String mixin : MIXINS) {
-			load(loader, mixin, problems);
-		}
+		diagnostic("context loader " + name(Thread.currentThread().getContextClassLoader()));
+		diagnostic("game loader " + name(loader));
 
 		for (String[] entry : METHODS) {
 			Class<?> owner = load(loader, entry[0], problems);
@@ -89,6 +90,10 @@ public class MixinTargetsTest {
 					missingHandlers.add(entry[0] + "#" + entry[1]);
 				}
 			}
+		}
+
+		for (String mixin : MIXINS) {
+			load(loader, mixin, problems);
 		}
 
 		diagnostic("declared config in mod json " + modJsonDeclaresConfig(loader));
@@ -160,22 +165,39 @@ public class MixinTargetsTest {
 		System.out.println("::notice title=yoptie-verify::config defaults, clamps and file output are correct");
 	}
 
+	private static ClassLoader gameLoader() {
+		try {
+			Class<?> launcherBase = Class.forName("net.fabricmc.loader.impl.launch.FabricLauncherBase");
+			Object launcher = launcherBase.getMethod("getLauncher").invoke(null);
+			Object loader = launcher.getClass().getMethod("getTargetClassLoader").invoke(launcher);
+
+			if (loader instanceof ClassLoader) {
+				return (ClassLoader) loader;
+			}
+		} catch (Throwable error) {
+			diagnostic("game loader unavailable " + error);
+		}
+
+		return Thread.currentThread().getContextClassLoader();
+	}
+
 	private static void register() {
 		try {
-			ClassLoader loader = Thread.currentThread().getContextClassLoader();
-			Class<?> mixins = Class.forName("org.spongepowered.asm.mixin.Mixins", true, loader);
+			Class<?> mixins = Class.forName("org.spongepowered.asm.mixin.Mixins", true, GAME_LOADER);
+			diagnostic("mixin class shared " + (mixins == Class.forName("org.spongepowered.asm.mixin.Mixins", true, Thread.currentThread().getContextClassLoader())));
 			diagnostic("mixin configs before " + configNames(mixins));
 
 			if (!configNames(mixins).contains(CONFIG)) {
 				mixins.getMethod("addConfiguration", String.class).invoke(null, CONFIG);
 				diagnostic("mixin configs after " + configNames(mixins));
 			}
-
-			Class<?> mixinsFromTarget = Class.forName("org.spongepowered.asm.mixin.Mixins", true, mixins.getClassLoader());
-			diagnostic("mixin class shared " + (mixins == mixinsFromTarget));
 		} catch (Throwable error) {
 			diagnostic("mixin registration failed " + error);
 		}
+	}
+
+	private static String name(ClassLoader loader) {
+		return loader == null ? "bootstrap" : loader.getClass().getName();
 	}
 
 	private static String configNames(Class<?> mixins) {
