@@ -65,8 +65,10 @@ public class MixinTargetsTest {
 		}
 
 		if (!missingHandlers.isEmpty()) {
-			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "] configs=" + mixinConfigs());
+			problems.add("handlers not applied [" + String.join(" ", missingHandlers) + "]");
 		}
+
+		diagnostic("configs " + mixinConfigs());
 
 		if (!problems.isEmpty()) {
 			throw new AssertionError("VERIFY " + String.join(" | ", problems));
@@ -91,11 +93,17 @@ public class MixinTargetsTest {
 			outcome = "threw " + cause.getClass().getName() + ": " + cause.getMessage();
 		}
 
+		diagnostic("telemetry probe " + outcome);
+
 		if (!"returned false".equals(outcome)) {
 			throw new AssertionError("VERIFY telemetry probe " + outcome);
 		}
 
 		System.out.println("::notice title=yoptie-verify::telemetry probe correctly returned false");
+	}
+
+	private static void diagnostic(String message) {
+		System.out.println("YOPTIE-DIAGNOSTIC " + message);
 	}
 
 	private static String mixinConfigs() {
